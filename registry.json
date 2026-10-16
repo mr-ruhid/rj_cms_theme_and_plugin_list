@@ -1,0 +1,15 @@
+{
+    "$schema": "./schema/registry.schema.json",
+    "version": "1.0",
+    "updated_at": "2026-10-17T00:00:00Z",
+    "themes": [
+        {
+            "repo": "mr-ruhid/rj-theme-default",
+            "verified": true,
+            "featured": false,
+            "category": "general",
+            "tags": ["minimal", "blog"]
+        }
+    ],
+    "plugins": []
+}
