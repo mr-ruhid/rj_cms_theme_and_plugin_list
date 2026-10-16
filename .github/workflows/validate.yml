@@ -1,0 +1,168 @@
+name: Validate Registry
+
+on:
+  pull_request:
+    paths:
+      - 'registry.json'
+      - 'schema/**'
+      - '.github/workflows/validate.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'registry.json'
+      - 'schema/**'
+  workflow_dispatch:
+
+jobs:
+  json-validate:
+    name: Validate JSON structure
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install ajv-cli
+        run: npm install -g ajv-cli ajv-formats
+
+      - name: Check JSON syntax
+        run: |
+          if ! jq empty registry.json; then
+            echo "::error file=registry.json::registry.json is not valid JSON"
+            exit 1
+          fi
+          echo "✅ registry.json is valid JSON"
+
+      - name: Validate against schema
+        run: |
+          ajv validate \
+            -s schema/registry.schema.json \
+            -d registry.json \
+            --spec=draft7 \
+            -c ajv-formats \
+            --strict=false
+          echo "✅ registry.json matches schema"
+
+  check-duplicates:
+    name: Check duplicate entries
+    runs-on: ubuntu-latest
+    needs: json-validate
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Check duplicate theme repos
+        run: |
+          DUPLICATES=$(jq -r '.themes[].repo' registry.json | sort | uniq -d)
+          if [ -n "$DUPLICATES" ]; then
+            echo "::error file=registry.json::Duplicate theme entries: $DUPLICATES"
+            exit 1
+          fi
+          echo "✅ No duplicate themes"
+
+      - name: Check duplicate plugin repos
+        run: |
+          DUPLICATES=$(jq -r '.plugins[].repo' registry.json | sort | uniq -d)
+          if [ -n "$DUPLICATES" ]; then
+            echo "::error file=registry.json::Duplicate plugin entries: $DUPLICATES"
+            exit 1
+          fi
+          echo "✅ No duplicate plugins"
+
+  verify-repos:
+    name: Verify GitHub repositories
+    runs-on: ubuntu-latest
+    needs: json-validate
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Verify each repository exists and has releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FAILED=0
+
+          ALL_REPOS=$(jq -r '.themes[].repo, .plugins[].repo' registry.json)
+
+          for REPO in $ALL_REPOS; do
+            echo "::group::Checking $REPO"
+
+            REPO_INFO=$(curl -s -o /dev/null -w "%{http_code}" \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO")
+
+            if [ "$REPO_INFO" != "200" ]; then
+              echo "::error::Repository not found or not public: $REPO (HTTP $REPO_INFO)"
+              FAILED=1
+              echo "::endgroup::"
+              continue
+            fi
+
+            echo "✅ Repository exists"
+
+            RELEASE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO/releases/latest")
+
+            if [ "$RELEASE_STATUS" != "200" ]; then
+              echo "::error::No published release found for $REPO"
+              FAILED=1
+              echo "::endgroup::"
+              continue
+            fi
+
+            echo "✅ Has at least one release"
+
+            HAS_ZIP=$(curl -s \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO/releases/latest" \
+              | jq '[.assets[] | select(.name | endswith(".zip"))] | length')
+
+            if [ "$HAS_ZIP" -eq 0 ]; then
+              echo "::error::Latest release of $REPO has no ZIP asset"
+              FAILED=1
+              echo "::endgroup::"
+              continue
+            fi
+
+            echo "✅ Release contains ZIP asset"
+            echo "::endgroup::"
+          done
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo "::error::One or more repositories failed validation"
+            exit 1
+          fi
+
+          echo "✅ All repositories verified"
+
+  summary:
+    name: Validation summary
+    runs-on: ubuntu-latest
+    needs: [json-validate, check-duplicates, verify-repos]
+    if: always()
+    steps:
+      - name: Print result
+        run: |
+          if [ "${{ needs.json-validate.result }}" != "success" ] || \
+             [ "${{ needs.check-duplicates.result }}" != "success" ] || \
+             [ "${{ needs.verify-repos.result }}" != "success" ]; then
+            echo "❌ Registry validation failed"
+            exit 1
+          fi
+          echo "✅ Registry validation passed"
