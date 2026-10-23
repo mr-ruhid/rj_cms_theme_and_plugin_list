@@ -1,7 +1,7 @@
 {
     "$schema": "./schema/registry.schema.json",
     "version": "1.0",
-    "updated_at": "2026-10-17T00:00:00Z",
+    "updated_at": "2026-10-23T00:00:00Z",
     "themes": [
         {
             "repo": "mr-ruhid/rj-theme-default",
@@ -11,5 +11,13 @@
             "tags": ["minimal", "blog"]
         }
     ],
-    "plugins": []
+    "plugins": [
+        {
+            "repo": "rj-nexus/rj-commerce",
+            "verified": false,
+            "featured": false,
+            "category": "ecommerce",
+            "tags": ["ecommerce", "shopping-cart", "products", "orders", "payments"]
+        }
+    ]
 }
