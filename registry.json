@@ -14,8 +14,8 @@
     "plugins": [
         {
             "repo": "rj-nexus/rj-commerce",
-            "verified": false,
-            "featured": false,
+            "verified": true,
+            "featured": true,
             "category": "ecommerce",
             "tags": ["ecommerce", "shopping-cart", "products", "orders", "payments"]
         }
